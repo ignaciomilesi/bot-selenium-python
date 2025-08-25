@@ -9,6 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
+import modulos.configBot as configBot
 import modulos.confidencial as cf
 
 
@@ -21,21 +22,120 @@ SUFIJO_ID_DESPLEGABLE = "hb-btn" # 18-btn
 SUFIJO_ID_VISUALIZAR = "jb" # 38
 SUFIJO_ID_BOTON_DESCARGA = "7c"  
 
-class Bot:
+class Bot:                 
 
-    def __init__(self):
-        pass                       
+    def set_config(self):
 
-    def set_config(self, USUARIO, PASSWORD, CARPETA_DE_DESCARGA, CHROMEDRIVER_PATH):
-        self.USUARIO = USUARIO
-        self.PASSWORD = PASSWORD
-        self.CARPETA_DE_DESCARGA = CARPETA_DE_DESCARGA
-        self.CHROMEDRIVER_PATH = CHROMEDRIVER_PATH
+        config_bot = configBot.obtener_config()
+        
+        self.USUARIO = config_bot["USUARIO"]
+        self.PASSWORD = config_bot["PASSWORD"]
+        self.CARPETA_DE_DESCARGA = config_bot["CARPETA_DE_DESCARGA"]
+        self.CHROMEDRIVER_PATH = config_bot["CHROMEDRIVER_PATH"]
+        self.LINK_DE_COMIENZO = config_bot["LINK_DE_COMIENZO"]
 
-    def set_expediente(self, EXPEDIENTE):
-        self.EXPEDIENTE = EXPEDIENTE
+    def iniciar_navegador(self):
+        
+        self._iniciar_driver()
 
-    def iniciar_driver(self):
+        self._abrir_navegador(self.LINK_DE_COMIENZO) 
+
+        self._iniciar_sesion()
+        print("sesión iniciada")
+
+    def buscar_expediente(self, expediente):
+
+            self.EXPEDIENTE = expediente
+
+            try:
+
+                self._buscar_expediente()
+                print("Expediente encontrado")
+                
+                self._descargar_expediente()
+                print("Comenzó la descarga del expediente")
+
+                # self._verificar_finalizadas_todas_descarga()
+                # print("Se descargo el expediente")
+            
+            except Exception as e:
+                print("\n\n ----- ERROR!!! ----- \n\n")
+                print(e)
+                print("\n\n ----- ERROR!!! ----- \n\n")
+
+    def volver_pagina_busqueda(self):
+        if not hasattr(self, 'DRIVER'):
+            raise ValueError("el DRIVER no está configurado.")
+        
+        self.DRIVER.get(cf.link1)
+
+    def verificar_finalizadas_todas_descarga(self):
+        # vamos a la pagina de descarga y esperamos a que termine todas la descarga
+        
+        self.DRIVER.get("chrome://downloads")
+        
+        # verificamos que hayan terminado las descargas
+
+        timeout = datetime.now() + timedelta(seconds=60)  # Esperar máxima 
+        
+        while True:
+            items = self.DRIVER.execute_script("return document.querySelector('downloads-manager').shadowRoot.getElementById('downloadsList').items;")
+
+            contador_de_descargas_finalizadas = 0
+
+            for item in items:
+
+                if item["percent"] == 100 or item["percent"] == -2:
+                    contador_de_descargas_finalizadas += 1
+
+               
+            if contador_de_descargas_finalizadas == len(items):
+                break  
+
+            if datetime.now() > timeout: #Si se supera la espera maxima
+                raise TimeoutError("Las descargas no finalizaron a tiempo.")
+            
+            print("-----", len(items) - contador_de_descargas_finalizadas, "archivos pendientes") 
+            time.sleep(0.5) # para no gastar mas CPU del necesario
+        
+        # verificamos que ya no queden archivos temporales de descarga
+        
+        timeout = datetime.now() + timedelta(seconds=30)  # Esperar máxima 
+
+        while True:
+           if not any(f.suffix == ".crdownload" for f in Path(self.CARPETA_DE_DESCARGA).iterdir()):
+               break
+           
+           if datetime.now() > timeout: #Si se supera la espera maxima
+                raise TimeoutError("Las descargas no finalizaron a tiempo.")
+           
+           time.sleep(0.1) # para no gastar mas CPU del necesario
+
+    def apagar(self):
+        
+        self.DRIVER.quit()
+
+############### Métodos privados ###############
+
+    def _encontrar_id_base(self):
+        # La base del id son los primeros 4 caracteres del id del primer div
+
+        if not hasattr(self, 'DRIVER'):
+            raise ValueError("el DRIVER no está configurado.")
+
+        # Espera que cargue el primer div dentro del body
+        root_div = WebDriverWait(self.DRIVER, 10).until(
+            EC.presence_of_element_located((By.XPATH, "/html/body/div[1]"))
+        )
+
+        # Extrae los primeros 4 caracteres del ID del div
+        base_id = root_div.get_attribute("id")[:4]
+
+        print(f"ID dinámico encontrado: {base_id}")
+
+        return base_id
+    
+    def _iniciar_driver(self):
 
         # Validar si los parámetros necesarios fueron configurados
         if not hasattr(self, 'CARPETA_DE_DESCARGA'):
@@ -60,28 +160,14 @@ class Bot:
         # Iniciamos el navegador con las opciones configuradas
         self.DRIVER = webdriver.Chrome(service=service, options=options)
 
-    def abrir_navegador(self, pagina):
-        self.DRIVER.get(pagina) 
-
-    def _encontrar_id_base(self):
-        # La base del id son los primeros 4 caracteres del id del primer div
+    def _abrir_navegador(self, pagina):
 
         if not hasattr(self, 'DRIVER'):
             raise ValueError("el DRIVER no está configurado.")
+        
+        self.DRIVER.get(pagina) 
 
-        # Espera que cargue el primer div dentro del body
-        root_div = WebDriverWait(self.DRIVER, 10).until(
-            EC.presence_of_element_located((By.XPATH, "/html/body/div[1]"))
-        )
-
-        # Extrae los primeros 4 caracteres del ID del div
-        base_id = root_div.get_attribute("id")[:4]
-
-        print(f"ID dinámico encontrado: {base_id}")
-
-        return base_id
-
-    def iniciar_sesion(self):
+    def _iniciar_sesion(self):
 
         if not hasattr(self, 'DRIVER'):
             raise ValueError("el DRIVER no está configurado.")
@@ -116,14 +202,14 @@ class Bot:
 
         time.sleep(0.2) # Le damos n margen de tiempo antes de cambiar
 
-    def buscar_expediente(self):  
+    def _buscar_expediente(self):  
 
         if not hasattr(self, 'DRIVER'):
             raise ValueError("el DRIVER no está configurado.")
         
         if not hasattr(self, 'EXPEDIENTE'):
             raise ValueError("el EXPEDIENTE no está configurado.")
-        
+
         # debido a las re-direcciones, verificamos que estemos en la dirección correcta
         WebDriverWait(self.DRIVER, 30).until(
             lambda d: d.current_url == cf.link1
@@ -145,8 +231,7 @@ class Bot:
         boton_busqueda = self.DRIVER.find_element(By.ID, base_id + SUFIJO_ID_BOTON_BUSQUEDA_EXPEDIENTE)
         boton_busqueda.click()
 
-
-    def descargar_expediente(self):  
+    def _descargar_expediente(self):  
 
         if not hasattr(self, 'DRIVER'):
             raise ValueError("el DRIVER no está configurado.")
@@ -180,16 +265,9 @@ class Bot:
 
         boton_descarga.click()
 
-        self.esperar_comenzar_descarga()
+        self._esperar_comenzar_descarga()         
 
-        
-            
-
-    def apagar(self):
-        
-        self.DRIVER.quit()
-
-    def esperar_comenzar_descarga(self):
+    def _esperar_comenzar_descarga(self):
         
         # esperamos para que cargue el Loader 
         time.sleep(0.1)
@@ -204,44 +282,6 @@ class Bot:
         
         time.sleep(0.5) # damos un marguen a que haya comenzado
         
-
-    def verificar_finalizadas_todas_descarga(self):
-        # vamos a la pagina de descarga y esperamos a que termine todas la descarga
-        
-        self.DRIVER.get("chrome://downloads")
-        
-        # verificamos que hayan terminado las descargas
-
-        timeout = datetime.now() + timedelta(seconds=60)  # Esperar máxima 
-        
-        while True:
-            items = self.DRIVER.execute_script("return document.querySelector('downloads-manager').shadowRoot.getElementById('downloadsList').items;")
-           
-            contador_de_descargas_finalizadas = 0
-
-            for item in items:
-                if item["percent"] == 100:
-                    contador_de_descargas_finalizadas += 1
-                
-            if contador_de_descargas_finalizadas == len(items):
-                break  
-
-            if datetime.now() > timeout: #Si se supera la espera maxima
-                raise TimeoutError("Las descargas no finalizaron a tiempo.")
-            
-            time.sleep(0.5) # para no gastar mas CPU del necesario
-        
-        # verificamos que ya no queden archivos temporales de descarga
-        
-        timeout = datetime.now() + timedelta(seconds=30)  # Esperar máxima 
-
-        while True:
-           if not any(f.suffix == ".crdownload" for f in Path(self.CARPETA_DE_DESCARGA).iterdir()):
-               break
-           
-           if datetime.now() > timeout: #Si se supera la espera maxima
-                raise TimeoutError("Las descargas no finalizaron a tiempo.")
-           
-           time.sleep(0.1) # para no gastar mas CPU del necesario
+    
                 
 

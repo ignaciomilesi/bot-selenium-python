@@ -45,12 +45,10 @@ class Interface_config:
             self.entradas[campo] = entrada
 
         # Botón para guardar
-        if modificacion:
-            texto_boton = "Guardar"
+        
+        texto_boton = "Guardar" if modificacion else "Crear"
             
-        else:
-            texto_boton = "Crear"
-
+        
         boton_guardar = tk.Button(root, text=texto_boton, command=self.guardar)
         boton_guardar.grid(row=len(config)+1, column=0, columnspan=2, pady=15)
 

@@ -12,41 +12,52 @@ class Interface_bot:
     def generar_ventana(self, root : tk.Tk):
         
         root.title("Descargar Expediente")
-        root.geometry("320x120")
+        root.geometry("350x90")
 
-        # Frame para contener el botón de config
-        frame_superior = tk.Frame(root)
-        frame_superior.pack(pady=10, fill='x')  
+        # Crear la barra de menú
+        barra_menu = tk.Menu(root)
+        root.config(menu=barra_menu)
 
-        # Botón (Config)
-        boton_Config = tk.Button(frame_superior, text="Abrir Config", command=self._abrir_config)
-        boton_Config.pack(side="left", padx=5)
+        # Menú del Config
+        menu_archivo = tk.Menu(barra_menu, tearoff=0)
+        menu_archivo.add_command(label="Abrir", command=self._abrir_config)
 
+        # Agregar los menús a la barra
+        barra_menu.add_cascade(label="Config", menu=menu_archivo)
+
+        etiqueta_sup_input = tk.Label(root, text = "Ingrese expediente", font=("Arial", 10), anchor= "w")
+        etiqueta_sup_input.pack(padx=5, pady=(4,0), fill='x')
+
+        # Frame para botones 
+        frame_input = tk.Frame(root)
+        frame_input.pack(fill='x', padx=5) 
+
+        # Configurar las columnas del frame (para que la col 0 se expanda)
+        frame_input.columnconfigure(0, weight=1)
+
+        # Botón (Buscar)
+        boton_busqueda = tk.Button(frame_input, text="Buscar", command=self._buscar_expediente)
+        boton_busqueda.grid(row=0, column=1)
 
         # Input para el ingreso del expediente
-        self.exp_buscado = tk.Entry(root, font=("Arial", 10), width=40)
-        self.exp_buscado.pack(padx=5, pady=5, fill='x')
+        self.exp_buscado = tk.Entry(frame_input, font=("Arial", 10))
+        self.exp_buscado.grid(row=0, column=0, sticky="ew", padx=(2,5))
 
-        # Focus al input al abrir la ventana
+
+        # etiqueta_inf_input = tk.Label(root, anchor= "w", font=("Arial", 7),text = "(puede ser mas de uno, solo se necesita ingresar \"EX-####-########\")")
+        # etiqueta_inf_input.pack(padx=5, pady=2, fill='x')
+
+        # Focus al input al abrir la ventana y Asociar la tecla Enter a la función
         self.exp_buscado.focus_set()
-
-        # Asociar la tecla Enter a la función mostrar_input
         self.exp_buscado.bind("<Return>", self._buscar_expediente)
-
-
-        # Frame para checkbox y botón de búsqueda
-        frame_inferior = tk.Frame(root)
-        frame_inferior.pack(pady=5, fill='x')  
 
         # Checkbox para marcar si quiero solo descargar
         self.checkbox_solo_busqueda = tk.BooleanVar()
         self.checkbox_solo_busqueda.set(True)
-        checkbox = tk.Checkbutton(frame_inferior, text="Agregar archivos para DT", variable=self.checkbox_solo_busqueda)
-        checkbox.pack(side="left", padx=5)
+        checkbox = tk.Checkbutton(root, text="Agregar archivos para DT", variable=self.checkbox_solo_busqueda, anchor="w")
+        checkbox.pack(padx=2, fill='x')
 
-        # Botón (Buscar), alineado a la derecha
-        boton_busqueda = tk.Button(frame_inferior, text="Buscar", command=self._buscar_expediente)
-        boton_busqueda.pack(side="right", padx=5)
+        
 
         # guardo la configuración del root dentro de la class
         self.root = root
@@ -59,56 +70,39 @@ class Interface_bot:
     # Función buscar expediente
     def _buscar_expediente(self, event=None):
 
-        if not hasattr(self, 'config_bot'):
-            raise ValueError("No se cargó la configuración del bot.")
-        
         if not hasattr(self, 'exp_buscado'):
             raise ValueError("Error al obtener el EXP del GUI")
         
         if not hasattr(self, 'checkbox_solo_busqueda'):
             raise ValueError("Error al obtener el checkbox del GUI")
         
+        list_exp_busqueda = utils.listar_ingreso_ajustado(self.exp_buscado.get())
+
         bot = Bot()
         
-        bot.set_config(
-            USUARIO = self.config_bot["USUARIO"], 
-            PASSWORD = self.config_bot["PASSWORD"],
-            CARPETA_DE_DESCARGA = self.config_bot["CARPETA_DE_DESCARGA"],
-            CHROMEDRIVER_PATH = self.config_bot["CHROMEDRIVER_PATH"])
+        bot.set_config()
+        
+        bot.iniciar_navegador()
+        
+        for i, exp_busqueda in enumerate(list_exp_busqueda):
 
-        bot.set_expediente(self.exp_buscado.get())
+            if i > 0:
+                bot.volver_pagina_busqueda()
 
-        bot.iniciar_driver()
-
-        bot.abrir_navegador(self.config_bot["LINK_DE_COMIENZO"]) 
-
-
-        try:
-            #time.sleep(1) # esperamos 1 segundos para que cargue mejor la pagina
-            bot.iniciar_sesion()
-            print("sesión iniciada")
-
-            #time.sleep(2) 
-            bot.buscar_expediente()
-            print("Expediente encontrado")
+            print("---------- Realizando", i+1, "de", len(list_exp_busqueda), "expediente ----------")
             
-            #time.sleep(3) 
-            bot.descargar_expediente()
-            print("Comenzó la descarga del expediente")
+            bot.buscar_expediente(exp_busqueda)
 
-            bot.verificar_finalizadas_todas_descarga()
-            print("Se descargo el expediente")
-        
-        except Exception as e:
-            print("\n\n ----- ERROR!!! ----- \n\n")
-            print(e)
-            print("\n\n ----- ERROR!!! ----- \n\n")
+            print("-------------------------------------------------------------")
 
-        
+        print("Verificando descargas")
+        bot.verificar_finalizadas_todas_descarga()
+        print("Finalizaron todas las descargas")
+
         lista_carpetas_descomprimidas = utils.descomprimir_archivos_en_carpeta(
-            carpeta_contenedora_path=self.config_bot["CARPETA_DE_DESCARGA"],
-            eliminar_comprimido=True)
-        
+                carpeta_contenedora_path = bot.CARPETA_DE_DESCARGA,
+                eliminar_comprimido = True)
+            
         if self.checkbox_solo_busqueda.get():
             for carpeta in lista_carpetas_descomprimidas:
 
